@@ -1,0 +1,94 @@
+name: Build VAC APK
+
+on:
+  push:
+    branches: [ main ]
+    # Docs-only changes don't need a 15-minute APK build
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+  workflow_dispatch:
+
+# A newer push cancels the older, still-running build of the same branch
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Run unit tests (agents and course content, no Kivy needed)
+      run: |
+        pip install pytest
+        python -m pytest -q tests
+
+  build:
+    needs: test
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          git zip unzip \
+          libffi-dev libssl-dev \
+          autoconf automake libtool libtool-bin \
+          m4 libltdl-dev zlib1g-dev \
+          ccache build-essential pkg-config
+
+    - name: Install Python build tools
+      # These versions match p4a v2024.01.21 pinned in buildozer.spec.
+      # Change them together, never one alone.
+      run: |
+        pip install --upgrade pip
+        pip install buildozer==1.5.0 Cython==0.29.33 setuptools==69.5.1
+
+    # Android SDK/NDK (~/.buildozer) and the p4a build tree (.buildozer).
+    # The key includes buildozer.spec, so changing the toolchain starts clean
+    # instead of mixing an old cached build with new settings.
+    - name: Cache buildozer toolchain
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: buildozer-${{ runner.os }}-${{ hashFiles('buildozer.spec', '.github/workflows/build.yml') }}
+
+    - name: Build APK
+      run: yes | buildozer -v android debug
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: VAC-debug-apk
+        path: bin/*.apk
+        if-no-files-found: error

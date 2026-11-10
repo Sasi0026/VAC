@@ -1,0 +1,6 @@
+kivy[base]==2.3.2
+requests
+plyer
+pillow
+# optional, desktop only: microphone recording while developing
+# sounddevice
